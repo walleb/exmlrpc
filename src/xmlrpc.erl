@@ -66,7 +66,7 @@ call(Socket, URI, Payload, KeepAlive, Timeout) ->
 			    gen_tcp:close(Socket),
 			    {error, Reason};
 			{error, Reason} -> 
-			error_logger:error_msg("exml: call SOCKET CLOSED (1) ~p", [Reason]),
+                error_logger:error_msg("exml: call SOCKET CLOSED (1) ~p", [Reason]),
 				{error, Socket, Reason}
 		    end;
 		{error, Reason} when KeepAlive == false ->
@@ -74,11 +74,11 @@ call(Socket, URI, Payload, KeepAlive, Timeout) ->
 		    gen_tcp:close(Socket),
 		    {error, Reason};
 		{error, Reason} -> 
-		error_logger:error_msg("exml: call SOCKET CLOSED (1) ~p", [Reason]),
+            error_logger:error_msg("exml: call SOCKET CLOSED (1) ~p", [Reason]),
 			{error, Socket, Reason}
 	    end;
 	{error, Reason} when KeepAlive == false ->
-		error_msg:error_logger("Socket closed (5) ~p", [Reason]),
+        error_logger:error_msg("Socket closed (5) ~p", [Reason]),
 	    gen_tcp:close(Socket),
 	    {error, Reason};
 	{error, Reason} -> 
