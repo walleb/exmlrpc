@@ -1,7 +1,7 @@
                                     %% This is the application resource file (.app file) for the 'base'
 %% application.
 {application, xmlrpc,
-[{description, "An HTTP 1.1 compliant XML-RPC library for Erlang"},
+[{description, "An HTTP 1.0/1.1 compliant XML-RPC library for Erlang"},
  {vsn, "0.1.0"},
  {modules, [tcp_serv,
 	test,
@@ -15,5 +15,3 @@
  {mod, {xmlrpc,[]}},
  {start_phases, []}
 ]}.
-
-

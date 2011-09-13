@@ -26,7 +26,7 @@
 
 -module(xmlrpc).
 -author('jocke@gleipnir.com').
--export([call/3, call/4, call/5, call/6]).
+-export([call/4, call/6]).
 -export([start_link/1, start_link/5, start_link/6, stop/1]).
 
 -include("log.hrl").
@@ -38,99 +38,104 @@
 	  connection
 	 }).
 
-%% Exported: call/{3,4,5,6}
+%% Exported: call/{4,6}
 
-call(Host, Port, URI, Payload) -> call(Host, Port, URI, Payload, false, 60000).
+call(Host, Port, URI, Payload) when is_list(Host) ->
+    call(Host, Port, URI, Payload, false, 60000);
+call(Socket, URI, Payload, HostHeader) when is_port(Socket) -> 
+    call(Socket, URI, Payload, false, 60000, HostHeader).
 
-call(Host, Port, URI, Payload, KeepAlive, Timeout) ->
+call(Host, Port, URI, Payload, KeepAlive, Timeout) when is_list(Host) ->
     case gen_tcp:connect(Host, Port, [{active, false}]) of
-	{ok, Socket} -> call(Socket, URI, Payload, KeepAlive, Timeout);
+	{ok, Socket} ->
+            HostHeader = lists:concat(["Host: ", Host, ":", Port]),
+            call(Socket, URI, Payload, KeepAlive, Timeout, HostHeader);
 	{error, Reason} when KeepAlive == false -> {error, Reason};
 	{error, Reason} -> {error, undefined, Reason}
-    end.
-
-call(Socket, URI, Payload) -> call(Socket, URI, Payload, false, 60000).
-
-call(Socket, URI, Payload, KeepAlive, Timeout) ->
+    end;
+call(Socket, URI, Payload, KeepAlive, Timeout, HostHeader) when is_port(Socket) ->
     ?DEBUG_LOG({decoded_call, Payload}),
     case xmlrpc_encode:payload(Payload) of
 	{ok, EncodedPayload} ->
 	    ?DEBUG_LOG({encoded_call, EncodedPayload}),
-	    case send(Socket, URI, KeepAlive, EncodedPayload) of
+	    case send(Socket, URI, KeepAlive, EncodedPayload, HostHeader) of
 		ok ->
 		    case parse_response(Socket, Timeout) of
 			{ok, Header} ->
 			    handle_payload(Socket, KeepAlive, Timeout, Header);
 			{error, Reason} when KeepAlive == false ->
-				error_logger:error_msg("exml: call SOCKET CLOSED (1) ~p", [Reason]),
+                            error_logger:error_msg("exml: call SOCKET CLOSED (1) ~p", [Reason]),
 			    gen_tcp:close(Socket),
 			    {error, Reason};
 			{error, Reason} -> 
-                error_logger:error_msg("exml: call SOCKET CLOSED (1) ~p", [Reason]),
-				{error, Socket, Reason}
+                            error_logger:error_msg("exml: call SOCKET CLOSED (1) ~p", [Reason]),
+                            {error, Socket, Reason}
 		    end;
 		{error, Reason} when KeepAlive == false ->
-			error_logger:error_msg("exml: call SOCKET CLOSED (1) ~p", [Reason]),
+                    error_logger:error_msg("exml: call SOCKET CLOSED (1) ~p", [Reason]),
 		    gen_tcp:close(Socket),
 		    {error, Reason};
 		{error, Reason} -> 
-            error_logger:error_msg("exml: call SOCKET CLOSED (1) ~p", [Reason]),
-			{error, Socket, Reason}
+                    error_logger:error_msg("exml: call SOCKET CLOSED (1) ~p", [Reason]),
+                    {error, Socket, Reason}
 	    end;
 	{error, Reason} when KeepAlive == false ->
-        error_logger:error_msg("Socket closed (5) ~p", [Reason]),
+            error_logger:error_msg("Socket closed (5) ~p", [Reason]),
 	    gen_tcp:close(Socket),
 	    {error, Reason};
 	{error, Reason} -> 
-		error_logger:error_msg("Socket closed (6) ~p", [Reason]),	
-		{error, Socket, Reason}
+            error_logger:error_msg("Socket closed (6) ~p", [Reason]),	
+            {error, Socket, Reason}
     end.
 
-send(Socket, URI, false, Payload) ->
-    send(Socket, URI, "Connection: close\r\n", Payload);
-send(Socket, URI, true, Payload) -> send(Socket, URI, "", Payload);
-send(Socket, URI, Header, Payload) ->
+send(Socket, URI, false, Payload, HostHeader) ->
+    send(Socket, URI, "Connection: close\r\n", Payload, HostHeader);
+send(Socket, URI, true, Payload, HostHeader) -> send(Socket, URI, "", Payload, HostHeader);
+send(Socket, URI, Header, Payload, HostHeader) ->
     Request =
 	["POST ", URI, " HTTP/1.1\r\n",
 	 "Content-Length: ", integer_to_list(lists:flatlength(Payload)),
 	 "\r\n",
 	 "User-Agent: Erlang XML-RPC Client 1.13\r\n",
 	 "Content-Type: text/xml\r\n",
+         HostHeader, "\r\n",
 	 Header, "\r\n",
 	 Payload],
     gen_tcp:send(Socket, Request).
 
 parse_response(Socket, Timeout) ->
     inet:setopts(Socket, [{packet, line}]),
-	Request = gen_tcp:recv(Socket, 0, Timeout),
+    Request = gen_tcp:recv(Socket, 0, Timeout),
     case Request of
-    % case gen_tcp:recv(Socket, 0, Timeout) of
+                                                % case gen_tcp:recv(Socket, 0, Timeout) of
 	{ok,"HTTP/1.1 200 \r\n"} -> parse_header(Socket, Timeout);
 	{ok,"HTTP/1.1 200 OK\r\n"} -> parse_header(Socket, Timeout);
+        {ok,"HTTP/1.0 200 \(OK\)\r\n"} -> parse_header(Socket, Timeout);
+	{ok,"HTTP/1.0 200 OK\r\n"} -> parse_header(Socket, Timeout);
 	{ok, StatusLine} -> 
-		error_logger:error_msg("exml: Parse error ~p", [StatusLine]),		
-		{error, StatusLine};
+            error_logger:error_msg("exml: Parse error ~p", [StatusLine]),		
+            {error, StatusLine};
 	{error, Reason} -> 
-		error_logger:error_msg("exml: Parse error ~p", [Reason]),		
-		{error, Reason}
+            error_logger:error_msg("exml: Parse error ~p", [Reason]),		
+            {error, Reason}
     end.
 
 parse_header(Socket, Timeout) -> parse_header(Socket, Timeout, #header{}).
 
 parse_header(Socket, Timeout, Header) ->
-	case gen_tcp:recv(Socket, 0, Timeout) of
+    case gen_tcp:recv(Socket, 0, Timeout) of
 	{ok, "\r\n"} when Header#header.content_length == undefined ->
 	    {error, missing_content_length};
 	{ok, "\r\n"} -> {ok, Header};
 	{ok, HeaderField} ->
 	    case string:tokens(string:to_lower(HeaderField), " \r\n") of
 		["content-length:", ContentLength] ->
-			try
-				Value = list_to_integer(ContentLength),
-			    parse_header(Socket, Timeout,
-					 Header#header{content_length = Value})
+                    try
+                        Value = list_to_integer(ContentLength),
+                        parse_header(Socket, Timeout,
+                                     Header#header{content_length = Value})
 		    catch
-				_ -> {error, {invalid_content_length, ContentLength}}
+                        _ -> {error, {invalid_content_length, ContentLength}}
 		    end;
 		["connection:", "close"] ->
 		    parse_header(Socket, Timeout,
